@@ -1,0 +1,4 @@
+/cmake-build-debug/
+/fakeroot/*
+/busybox-package/root/usr/sbin/busybox
+/busybox.bvp
