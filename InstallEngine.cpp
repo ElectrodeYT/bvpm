@@ -138,7 +138,9 @@ bool InstallEngine::Execute() {
         for(std::string folder : package.folders) {
             folder = install_root + "/" + folder;
             PRINT_DEBUG("creating folder " << folder << std::endl);
-            fs::create_directories(folder);
+            if(!fs::exists(folder)) {
+                fs::create_directories(folder);
+            }
         }
 
         // We now copy the files
