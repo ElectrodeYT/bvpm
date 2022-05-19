@@ -1,6 +1,7 @@
 //
 // Created by alexander on 5/18/22.
 //
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <config.h>
@@ -11,7 +12,7 @@
 namespace fs = std::filesystem;
 
 void DependencyEngine::LoadInstalledPackages() {
-    std::cout << "Loading installed package manifests" << std::endl;
+    std::cout << "Loading installed package manifests... ";
 
     // First, we generate a list of package folders in /etc/bvpm/packages
     // While these should be the same as the package name, as we need to read the package manifest anyway to get the
@@ -43,17 +44,20 @@ void DependencyEngine::LoadInstalledPackages() {
         installed_packages[name] = version;
         PRINT_DEBUG("installed package: " << name << ", version: " << version << std::endl);
     }
+    std::cout << installed_packages.size() << " installed packages." << std::endl;
 }
 
 bool DependencyEngine::CheckDependencies(std::vector<PackageFile>& packages) {
     bool passed = true;
-    for(PackageFile package : packages) {
+    bool sort_req = false;
+    std::map<std::string, std::string> new_files;
+    for(PackageFile& package : packages) {
         // If the manifest has a dependencies section, then we check if they are already installed
         // If not, then we check if they are in the install list
         // If also not, then we bail
         // TODO: redo this if/when network install is added
         if(package.manifest.values.find("DEPENDENCY") != package.manifest.values.end()) {
-            PRINT_DEBUG("checking dependencies for " << package.name << std::endl);
+            // PRINT_DEBUG("checking dependencies for " << package.name << std::endl);
             std::stringstream ss(package.manifest.values["DEPENDENCY"]);
             while(ss.good()) {
                 std::string package_dep;
@@ -61,11 +65,87 @@ bool DependencyEngine::CheckDependencies(std::vector<PackageFile>& packages) {
 
                 // We now check if this dependency is installed
                 if(installed_packages.find(package_dep) == installed_packages.end()) {
-                    std::cout << "Package " << package.name << " is missing dependency " << package_dep << std::endl;
-                    passed = false;
+                    // If we dont have the dependency, then we can go and check if we are also about to install it:
+                    // TODO: when network works, add some shit for this
+                    bool found = false;
+                    for(PackageFile depsearch : packages) {
+                        if(depsearch.name == package_dep) {
+                            // If they have us in their dep list, than we report this and cut the dependency between them and us
+                            if(std::find(depsearch.dependencies.begin(), depsearch.dependencies.end(), package.name) != depsearch.dependencies.end()) {
+                                std::cout << "Package " << package_dep << " has a circular dependency with us, breaking." << std::endl;
+                                found = true;
+                                break;
+                            }
+                            // Add this package to our dependencies list
+                            package.dependencies.push_back(depsearch.name);
+                            found = true;
+                            sort_req = true;
+                            // PRINT_DEBUG("added dep " << depsearch.name << " to package " << package.name << ", dep count now " << package.dependencies.size() << std::endl);
+                            break;
+                        }
+                    }
+                    if(!found) {
+                        std::cout << "Package " << package.name << " is missing dependency " << package_dep << std::endl;
+                        passed = false;
+                    }
                 }
             }
         }
+
+        // We also look through the owned files here
+        // We basically check if a package here would clash with another package
+        bool pass_failed = false;
+        for(std::string file : package.owned_files) {
+            if(new_files.find(file) != new_files.end()) {
+                std::cout << "Error: package " << package.name << " has file clashes with package " << new_files[file] << ": " << file << std::endl;
+                passed = false;
+                pass_failed = true;
+            }
+        }
+        if(!pass_failed) {
+            // We can now add the files
+            for(std::string file : package.owned_files) {
+                new_files[file] = package.name;
+            }
+        }
     }
+    if(!passed) { return false; }
+    // We can now perform a toplogical sort.
+    if(!sort_req) { return passed; }
+//    for(PackageFile& package : packages) {
+//        std::cout << package.name << std::endl;
+//        for(std::string dep : package.dependencies) {
+//            std::cout << "-- " << dep << std::endl;
+//        }
+//    }
+    std::cout << "Sorting dependencies..." << std::endl;
+    std::vector<PackageFile> sorted_packages;
+    while(packages.size() > 0) {
+        InsertPackageIntoListSorted((*packages.begin()).name, packages, sorted_packages);
+    }
+//    for(PackageFile& package : sorted_packages) {
+//        std::cout << package.name << std::endl;
+//        for(std::string dep : package.dependencies) {
+//            std::cout << "-- " << dep << std::endl;
+//        }
+//    }
+    packages = sorted_packages;
     return passed;
+}
+
+void DependencyEngine::InsertPackageIntoListSorted(const std::string& name, std::vector<PackageFile>& all_packages, std::vector<PackageFile>& sorted_packages) {
+    auto package = std::find_if(all_packages.begin(), all_packages.end(), [name](PackageFile pack) {
+        return name == pack.name;
+    });
+    if(package != all_packages.end()) {
+        PackageFile obj = *package;
+        all_packages.erase(package);
+        // PRINT_DEBUG("inserting for pack " << obj.name << std::endl);
+        // PRINT_DEBUG(" dep count: " << obj.dependencies.size() << std::endl);
+        for(std::string dep : obj.dependencies) {
+            // PRINT_DEBUG("inserting dep " << dep << " for " << obj.name << std::endl);
+            InsertPackageIntoListSorted(dep, all_packages, sorted_packages);
+        }
+        sorted_packages.push_back(obj);
+    }
 }

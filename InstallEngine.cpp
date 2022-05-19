@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <debug.h>
 #include <sys/wait.h>
+#include <human-readable.h>
 
 namespace fs = std::filesystem;
 
@@ -41,7 +42,21 @@ bool InstallEngine::AddPackage(std::string package) {
             archive_read_data(file.a, data, manifest_size);
             file.manifest = Config::readFromData(data);
         }
-        if(strcmp(name, "owned-files") == 0) { has_owned_files = true; }
+        if(strcmp(name, "owned-files") == 0) {
+            has_owned_files = true;
+            // We also try to read the manifest now
+            size_t owned_files_size = archive_entry_size(file_entry);
+            char* data = (char*)malloc(owned_files_size + 2);
+            memset(data, 0, owned_files_size + 1);
+            archive_read_data(file.a, data, owned_files_size);
+
+            // Split the owned-files by newline
+            std::istringstream ss(data);
+            std::string line;
+            while(std::getline(ss, line, '\n')) {
+                file.owned_files.push_back(line);
+            }
+        }
         if(strcmp(name, "afterinstall.sh") == 0) { file.has_after_install = true; }
         // We also make a record of all files and folders in root/
         if(strncmp(name, "root/", strlen("root/")) == 0) {
@@ -119,10 +134,15 @@ bool InstallEngine::GetUserPermission() {
     std::cout << "The following packages will be installed: " << std::endl;
     size_t total_size = 0;
     for(PackageFile package : package_list) {
-        std::cout << "\t" << package.name << " (size: " << package.total_package_bytes << ")" << std::endl;
+        std::cout << "\t" << package.name << " (size: " << humanSize(package.total_package_bytes) << ")" << std::endl;
         total_size += package.total_package_bytes;
     }
-    std::cout << "Total size of packages: " << total_size << "\n";
+    std::cout << "Total size of packages: " << humanSize(total_size) << "\n";
+    // Check if we have enough space
+    if(fs::space(fs::path(install_root)).available <= total_size) {
+        std::cout << "Error: Not enough space on filesystem (space available: " << humanSize(fs::space(fs::path(install_root)).available) << ")" << std::endl;
+        return false;
+    }
     std::cout << "Are you sure? [y/N] ";
     fflush(stderr);
     fflush(stdout);
@@ -133,7 +153,8 @@ bool InstallEngine::GetUserPermission() {
 
 bool InstallEngine::Execute() {
     for(PackageFile package : package_list) {
-        std::cout << "Operating on " << package.name << std::endl;
+        std::cout << "Operating on " << package.name << '\r';
+        std::cout.flush();
         // We mkdir all the folders first
         for(std::string folder : package.folders) {
             folder = install_root + "/" + folder;
@@ -162,6 +183,7 @@ bool InstallEngine::Execute() {
 
         // We now stream through the archive again
         struct archive_entry* file_entry;
+        size_t copied_files = 0;
         while(archive_read_next_header(package.a, &file_entry) == ARCHIVE_OK) {
             const char* name = archive_entry_pathname(file_entry);
             if(strcmp(name, "manifest") == 0 || strcmp(name, "owned-files") == 0 || strcmp(name, "afterinstall.sh") == 0) {
@@ -200,6 +222,8 @@ bool InstallEngine::Execute() {
                    archive_write_header(extract, extracted_entry);
                    copy_data(package.a, extract);
                    archive_write_finish_entry(extract);
+                   std::cout << "\33[2K\rOperating on " << package.name << ": " << ++copied_files << "/" << package.files.size() << '\r';
+                   std::cout.flush();
                 }
             }
         }
@@ -233,6 +257,7 @@ bool InstallEngine::Execute() {
                 exit(-1);
             }
         }
+        std::cout << "\33[2K\rDone operating on " << package.name << std::endl;
     }
     return true;
 }

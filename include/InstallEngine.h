@@ -24,6 +24,8 @@ struct PackageFile {
     ConfigFile manifest;
 
     bool has_after_install = false;
+    std::vector<std::string> dependencies;
+    std::vector<std::string> owned_files;
 };
 
 class InstallEngine {
@@ -36,11 +38,12 @@ public:
     bool GetUserPermission();
 
     bool empty() { return package_list.empty(); }
+
+    DependencyEngine dependencyEngine;
 private:
 
     const std::string install_root;
     std::vector<PackageFile> package_list;
-    DependencyEngine dependencyEngine;
 };
 
 

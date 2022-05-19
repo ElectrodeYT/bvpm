@@ -19,6 +19,7 @@ public:
     std::map<std::string, std::string> installed_packages;
 
 private:
+    void InsertPackageIntoListSorted(const std::string& name, std::vector<PackageFile>& all_packages, std::vector<PackageFile>& sorted_packages);
     void LoadInstalledPackages();
     std::string install_root;
 };

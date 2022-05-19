@@ -52,7 +52,12 @@ int main(int argc, char** argv) {
     } else if(action == "uninstall") {
 
     } else if(action == "query") {
-
+        // Try to find the package
+        for(const auto& package : packages_to_operate) {
+            if(installEngine.dependencyEngine.installed_packages.find(std::string(package)) != installEngine.dependencyEngine.installed_packages.end()) {
+                std::cout << package << ": " << installEngine.dependencyEngine.installed_packages[std::string(package)] << std::endl;
+            }
+        }
     } else if(action == "") {
         printHelp(argv[0]);
     } else {
