@@ -7,11 +7,16 @@ set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG")
 add_executable(bvpm
         main.cpp
         InstallEngine.cpp
+        UninstallEngine.cpp
         DependencyEngine.cpp
         config.cpp
         )
 target_include_directories(bvpm PUBLIC include)
 target_link_libraries(bvpm PUBLIC archive)
+
+add_custom_target(create_bvpm_package_folder
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/package
+        )
 
 add_custom_target(create_bvpm_package ALL
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/package/root/usr/sbin/
@@ -23,4 +28,5 @@ add_custom_target(create_bvpm_package ALL
         COMMAND ${CMAKE_COMMAND} -E tar "cfv" "../bvpm.bvp" "*"
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/package"
         DEPENDS bvpm
+        DEPENDS create_bvpm_package_folder
         )

@@ -149,3 +149,67 @@ void DependencyEngine::InsertPackageIntoListSorted(const std::string& name, std:
         sorted_packages.push_back(obj);
     }
 }
+
+ConfigFile DependencyEngine::LoadPackageManifest(std::string name) {
+    // First we check if we have this cached
+    if(packageManifests.find(name) != packageManifests.end()) {
+        return packageManifests[name];
+    }
+    // If we dont, we can just return the correct call to readConfigFile
+    ConfigFile config = Config::readConfigFile(install_root + "/etc/bvpm/packages/" + name + "/manifest");
+    packageManifests[name] = config;
+    return config;
+}
+
+std::vector<std::string> DependencyEngine::GetPackageOwnedFiles(std::string name) {
+    // First we check if we have this cached
+    if(packageOwnedFiles.find(name) != packageOwnedFiles.end()) {
+        return packageOwnedFiles[name];
+    }
+    // We have to now getline the file a lot, to read everyline into a string that we save
+    std::ifstream file(install_root + "/etc/bvpm/packages/" + name + "/owned-files");
+    std::vector<std::string> lines;
+    // If we opened succesfully, than we read the file
+    // otherwise we just return a nothing
+    if(file.is_open()) {
+        std::string line;
+        while(std::getline(file, line, '\n')) {
+            lines.push_back(line);
+        }
+    }
+    packageOwnedFiles[name] = lines;
+    return lines;
+}
+
+std::vector<std::string> DependencyEngine::GetDependedPackages(std::string name_to_compare) {
+    std::vector<std::string> ret;
+    for(std::pair<std::string, std::string> package : installed_packages) {
+        const std::string& name = package.first;
+        ConfigFile manifest = LoadPackageManifest(name);
+        if(manifest.values.find("DEPENDENCY") != manifest.values.end()) {
+            std::stringstream ss(manifest.values["DEPENDENCY"]);
+            while (ss.good()) {
+                std::string package_dep;
+                std::getline(ss, package_dep, ',');
+                // We now check if this dependency is installed
+                if (package_dep == name_to_compare) {
+                    ret.push_back(name);
+                }
+            }
+        }
+    }
+    return ret;
+}
+
+size_t DependencyEngine::GetPackageSize(std::string name) {
+    std::vector<std::string> files = GetPackageOwnedFiles(name);
+    size_t size = 0;
+    for(std::string file : files) {
+        try {
+            size += fs::file_size(file);
+        } catch(fs::filesystem_error& e) {
+            std::cout << "Error getting size of file " << file << ": " << e.what() << std::endl;
+        }
+    }
+    return size;
+}

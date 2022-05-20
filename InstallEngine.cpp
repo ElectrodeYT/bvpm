@@ -152,6 +152,7 @@ bool InstallEngine::GetUserPermission() {
 }
 
 bool InstallEngine::Execute() {
+    std::vector<PackageFile> afterinstall_script_list;
     for(PackageFile package : package_list) {
         std::cout << "Operating on " << package.name << '\r';
         std::cout.flush();
@@ -232,32 +233,41 @@ bool InstallEngine::Execute() {
         archive_write_close(extract);
         archive_write_free(extract);
 
-        // We now execute the after-install script (if there is one)
+        // If this package has an after install script, we run it now
         if(package.has_after_install) {
-            // Generic fork/exec/wait
-            pid_t pid = fork();
-            if(pid > 0) {
-                int status;
-                waitpid(pid, &status, 0);
-            } else {
-                if(install_root != "/") {
-                    // We chroot if we need to
-                    if(chroot(install_root.c_str())) {
-                        perror("failed to chroot to fakeroot");
-                        exit(-1);
-                    } else {
-                        PRINT_DEBUG("chrooted to " << install_root << std::endl);
-                    }
-                }
-                std::string path("/");
-                path = path + "etc/bvpm/packages/" + package.name + "/afterinstall.sh";
-                PRINT_DEBUG("trying to execute " << path << " as after install script" << std::endl);
-                execl(path.c_str(), path.c_str(), NULL);
-                perror("couldnt execute shell script");
-                exit(-1);
-            }
+            afterinstall_script_list.push_back(package);
         }
         std::cout << "\33[2K\rDone operating on " << package.name << std::endl;
+    }
+    if(afterinstall_script_list.empty()) { return true; }
+    for(PackageFile package : afterinstall_script_list) {
+        std::cout << "Running after install script for " << package.name << std::endl;
+        std::cout.flush();
+        // Generic fork/exec/wait
+        pid_t pid = fork();
+        if(pid > 0) {
+            int status;
+            waitpid(pid, &status, 0);
+        } else {
+            if(install_root != "/") {
+                // We chroot if we need to
+                if(chroot(install_root.c_str())) {
+                    perror("failed to chroot to fakeroot");
+                    exit(-1);
+                } else {
+                    PRINT_DEBUG("chrooted to " << install_root << std::endl);
+                }
+            }
+            std::string path("/");
+            path = path + "etc/bvpm/packages/" + package.name + "/afterinstall.sh";
+            PRINT_DEBUG("trying to execute " << path << " as after install script" << std::endl);
+            chroot("/");
+            execl(path.c_str(), path.c_str(), NULL);
+            perror(strcat("couldnt execute shell script for package ", package.name.c_str()));
+            exit(-1);
+        }
+        std::cout << "\33[2K\rDone runinng after install for " << package.name << std::endl;
+        std::cout.flush();
     }
     return true;
 }
