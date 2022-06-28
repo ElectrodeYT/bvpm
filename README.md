@@ -5,7 +5,7 @@ BVPM is currently in a super-duper-early stage, and should not be used for anyth
 It's dependency support is very dumb, and it will probably destroy itself really quickly when faced with a hard situation.
 
 # File format
-The .bvp file format is just a .tar file (no compression, although if the libarchive installion supports compressed TAR files there is no reason we can't either)
+The .bvp file format is just a .tar file (can be compressed, if the installed libarchive supports it)
 
 The file has two/three extra files in it:
 
