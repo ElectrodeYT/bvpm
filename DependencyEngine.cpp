@@ -206,6 +206,7 @@ size_t DependencyEngine::GetPackageSize(std::string name) {
     size_t size = 0;
     for(std::string file : files) {
         try {
+            if(fs::is_symlink(file)) { continue; }
             size += fs::file_size(file);
         } catch(fs::filesystem_error& e) {
             std::cout << "Error getting size of file " << file << ": " << e.what() << std::endl;
