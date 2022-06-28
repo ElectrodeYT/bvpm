@@ -15,4 +15,6 @@ owned-files: The files this package claims. If the package is uninstalled, these
 
 afterinstall.sh: A script thats run at the end of the package installation. Optional.
 
+sums: A list of file hashes. Optional; will give a warning when not present.
+
 A folder called root must be present. The files in there will be copied to the root folder.
