@@ -21,11 +21,13 @@ struct PackageFile {
     std::string path;
 
     size_t total_package_bytes = 0;
+    size_t total_package_file_bytes = 0;
     ConfigFile manifest;
 
     bool has_after_install = false;
     std::vector<std::string> dependencies;
     std::vector<std::string> owned_files;
+    std::map<std::string, std::string> file_hashes;
 };
 
 class InstallEngine {
@@ -34,6 +36,7 @@ public:
 
     bool AddPackage(std::string package);
     bool VerifyPossible();
+    bool VerifyIntegrity();
     bool Execute();
     bool GetUserPermission();
 

@@ -1,7 +1,3 @@
-//
-// Created by alexander on 5/18/22.
-//
-
 #include <InstallEngine.h>
 #include <DependencyEngine.h>
 #include <iostream>
@@ -15,6 +11,8 @@ namespace fs = std::filesystem;
 
 bool InstallEngine::AddPackage(std::string package) {
     PRINT_DEBUG("adding package " << package << " to install engine list" << std::endl);
+    std::cout << "\33[2K\rAdding package " << package;
+    std::cout.flush();
     // TODO: add network package support
     PackageFile file;
     // TODO: read this from manifest
@@ -30,10 +28,15 @@ bool InstallEngine::AddPackage(std::string package) {
     struct archive_entry* file_entry;
     bool has_manifest = false;
     bool has_owned_files = false;
+    bool has_hashes = false;
+    size_t file_size = fs::file_size(package);
+    file.total_package_file_bytes = file_size;
     while(archive_read_next_header(file.a, &file_entry) == ARCHIVE_OK) {
-        const char* name = archive_entry_pathname(file_entry);
+        std::cout << "\33[2K\rAdding package " << package << ": " << humanSize(archive_filter_bytes(file.a, -1)) << "/" << humanSize(file_size);
+        std::cout.flush();
+        std::string name = archive_entry_pathname(file_entry);
         file.total_package_bytes += archive_entry_size(file_entry);
-        if(strcmp(name, "manifest") == 0) {
+        if(name == "manifest") {
             has_manifest = true;
             // We also try to read the manifest now
             size_t manifest_size = archive_entry_size(file_entry);
@@ -42,7 +45,7 @@ bool InstallEngine::AddPackage(std::string package) {
             archive_read_data(file.a, data, manifest_size);
             file.manifest = Config::readFromData(data);
         }
-        if(strcmp(name, "owned-files") == 0) {
+        if(name == "owned-files") {
             has_owned_files = true;
             // We also try to read the manifest now
             size_t owned_files_size = archive_entry_size(file_entry);
@@ -57,26 +60,52 @@ bool InstallEngine::AddPackage(std::string package) {
                 file.owned_files.push_back(line);
             }
         }
-        if(strcmp(name, "afterinstall.sh") == 0) { file.has_after_install = true; }
+        if(name == "sums") {
+            has_hashes = true;
+            // We also try to read the manifest now
+            size_t sums_size = archive_entry_size(file_entry);
+            char* data = (char*)malloc(sums_size + 2);
+            memset(data, 0, sums_size + 1);
+            archive_read_data(file.a, data, sums_size);
+
+            // Split the sums by newline
+            std::istringstream ss(data);
+            std::string line;
+            while(std::getline(ss, line, '\n')) {
+                std::string hash = line.substr(0, line.find(' '));
+                std::string file_str = line.substr(line.find(' '), line.size());
+
+                // Sanitize file a bit
+                while(file_str[0] == ' ') { file_str.erase(0, 1); }
+                if(file_str[0] == '*') { file_str.erase(0, 1); }
+                if(file_str[0] == '.') { file_str.erase(0, 1); }
+
+                file.file_hashes[file_str] = hash;
+            }
+        }
+        if(name == "afterinstall.sh") { file.has_after_install = true; }
         // We also make a record of all files and folders in root/
-        if(strncmp(name, "root/", strlen("root/")) == 0) {
+        if(name.rfind("root/", 0) == 0) {
             // Create a std::string and chop the root/ off
-            std::string name_str(name + strlen("root/"));
+            std::string name_str(name.erase(0, strlen("root/")));
             if(name_str.empty()) { continue; }
-            if(name[strlen(name) - 1] == '/') {
+            if(*(name.end()--) == '/') {
                 //std::cout << "folder in root: " << name_str << std::endl;
                 file.folders.push_back(name_str);
             } else {
                 file.files.push_back(name_str);
             }
         }
+        archive_read_data_skip(file.a);
     }
+    std::cout << "\33[2K\rDone reading package " << package;
+    std::cout.flush();
     archive_read_close(file.a);
     archive_read_free(file.a);
     if(has_manifest) {
         // We now parse the manifest (mostly to find the package name)
         if(file.manifest.values.find("PACKAGE") == file.manifest.values.end()) {
-            std::cout << "error adding package " << package << " to install list: manifest is missing package name" << std::endl;
+            std::cout << std::endl <<  "error adding package " << package << " to install list: manifest is missing package name" << std::endl;
             return false;
         } else {
             file.name = file.manifest.values["PACKAGE"];
@@ -93,17 +122,34 @@ bool InstallEngine::AddPackage(std::string package) {
             // Exception: if this package has no version, we let it install
             if(installed_manifest.values.find("VERSION") != installed_manifest.values.end()) {
                 if(installed_manifest.values["VERSION"] == file.version) {
-                    std::cout << "Package " << file.name << " of same version is already installed, skipping" << std::endl;
+                    std::cout << std::endl << "Package " << file.name << " of same version is already installed, skipping" << std::endl;
                     return true; // We return true here since this is not a fatal error
                 }
             }
         }
     }
     if(!has_manifest || !has_owned_files) {
-        std::cout << "error adding package " << package << " to install list: archive is missing required files" << std::endl;
+        std::cout << std::endl << "error adding package " << package << " to install list: archive is missing required files" << std::endl;
         return false;
     }
+    if(!has_hashes) {
+        std::cout << std::endl << "warning adding package " << package << " to install list: archive is missing hashes" << std::endl;
+    }
     package_list.push_back(file);
+    return true;
+}
+
+bool InstallEngine::VerifyIntegrity() {
+    for(PackageFile package : package_list) {
+        // We now reopen the archive
+        package.a = archive_read_new();
+        archive_read_support_format_all(package.a);
+        archive_read_support_filter_all(package.a);
+        if(archive_read_open_filename(package.a, package.path.c_str(), 1024) != ARCHIVE_OK) {
+            std::cout << "error installing package " << package.name << ": archive not ok" << std::endl;
+            continue;
+        }
+    }
     return true;
 }
 
@@ -133,11 +179,14 @@ bool InstallEngine::GetUserPermission() {
     if(empty()) { return false; }
     std::cout << "The following packages will be installed: " << std::endl;
     size_t total_size = 0;
+    size_t total_file_size = 0;
     for(PackageFile package : package_list) {
-        std::cout << "\t" << package.name << " (size: " << humanSize(package.total_package_bytes) << ")" << std::endl;
+        std::cout << "\t" << package.name << " (size: " << humanSize(package.total_package_bytes) << ", file size: " << humanSize(package.total_package_file_bytes) << ")" << std::endl;
         total_size += package.total_package_bytes;
+        total_file_size += package.total_package_file_bytes;
     }
     std::cout << "Total size of packages: " << humanSize(total_size) << "\n";
+    std::cout << "Total file size of packages: " << humanSize(total_file_size) << "\n";
     // Check if we have enough space
     if(fs::space(fs::path(install_root)).available <= total_size) {
         std::cout << "Error: Not enough space on filesystem (space available: " << humanSize(fs::space(fs::path(install_root)).available) << ")" << std::endl;
@@ -187,7 +236,7 @@ bool InstallEngine::Execute() {
         size_t copied_files = 0;
         while(archive_read_next_header(package.a, &file_entry) == ARCHIVE_OK) {
             const char* name = archive_entry_pathname(file_entry);
-            if(strcmp(name, "manifest") == 0 || strcmp(name, "owned-files") == 0 || strcmp(name, "afterinstall.sh") == 0) {
+            if(strcmp(name, "manifest") == 0 || strcmp(name, "owned-files") == 0 || strcmp(name, "afterinstall.sh") == 0 || strcmp(name, "sums") == 0) {
                 // We copy the manifest to a specific folder
                 std::string name_str(name);
                 name_str = "etc/bvpm/packages/" + package.name + "/" + name_str;
@@ -262,6 +311,7 @@ bool InstallEngine::Execute() {
             path = path + "etc/bvpm/packages/" + package.name + "/afterinstall.sh";
             PRINT_DEBUG("trying to execute " << path << " as after install script" << std::endl);
             chroot("/");
+            chdir("/");
             execl(path.c_str(), path.c_str(), NULL);
             perror(strcat("couldnt execute shell script for package ", package.name.c_str()));
             exit(-1);
@@ -273,5 +323,16 @@ bool InstallEngine::Execute() {
 }
 
 bool InstallEngine::VerifyPossible() {
-    return dependencyEngine.CheckDependencies(package_list);
+    if(!dependencyEngine.CheckDependencies(package_list)) { return false; }
+    // We now check and make sure that all files the packages want to install dont already exist
+    bool passed = true;
+    for(PackageFile package : package_list) {
+        for(std::string file : package.files) {
+            if(fs::exists(fs::path(install_root + file))) {
+                std::cout << "Error: file " << install_root + file << " (part of package " << package.name << ") already exists" << std::endl;
+                passed = false;
+            }
+        }
+    }
+    return passed;
 }
