@@ -2,7 +2,7 @@
 BVPM is a basic package manager. It was written basically to make development of basic-linux easier.
 
 BVPM is currently in a super-duper-early stage, and should not be used for anything but the most stupid systems.
-It does not currently support dependencies, or anything like that (at least not very well).
+It's dependency support is very dumb, and it will probably destroy itself really quickly when faced with a hard situation.
 
 # File format
 The .bvp file format is just a .tar file (no compression, although if the libarchive installion supports compressed TAR files there is no reason we can't either)
