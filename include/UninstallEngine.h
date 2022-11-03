@@ -9,7 +9,7 @@
 class UninstallEngine {
 public:
     UninstallEngine(std::string root) : dependencyEngine(root), install_root(root) { }
-    bool AddToList(std::string name);
+    bool AddToList(std::string name, bool ignore_deps);
     bool GetUserPermission();
     bool Execute();
 

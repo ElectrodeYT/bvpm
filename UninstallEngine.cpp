@@ -10,7 +10,7 @@
 
 namespace fs = std::filesystem;
 
-bool UninstallEngine::AddToList(std::string name) {
+bool UninstallEngine::AddToList(std::string name, bool ignore_deps) {
     // Check if this package is already in our list
     // If it is, then we don't need to readd it
     if(uninstall_list.find(name) != uninstall_list.end()) { return true; }
@@ -28,9 +28,15 @@ bool UninstallEngine::AddToList(std::string name) {
     }
     // Try to find all packages that depend on this package
     // We need to delete them all
+    // We only do this if the user did not pass --ignore-deps
+    if(ignore_deps) {
+        uninstall_list[name] = owned_files;
+        return true;
+    }
+
     for(std::string depended : dependencyEngine.GetDependedPackages(name)) {
         PRINT_DEBUG("trying to add " << depended << " to list" << std::endl);
-        if(!AddToList(depended)) {
+        if(!AddToList(depended, ignore_deps)) {
             std::cout << "Failed to add depended package " << depended << " (package " << name << ") to uninstall list" << std::endl;
             return false;
         }
@@ -46,7 +52,7 @@ bool UninstallEngine::GetUserPermission() {
     size_t total_size = 0;
     for(std::pair<std::string, std::vector<std::string>> package : uninstall_list) {
         size_t size = dependencyEngine.GetPackageSize(package.first);
-        std::cout << "\t" << package.first << " (size: " << size << ")" << std::endl;
+        std::cout << "\t" << package.first << " (size: " << humanSize(size) << ")" << std::endl;
         total_size += size;
     }
     std::cout << "Total size of packages: " << humanSize(total_size) << "\n";

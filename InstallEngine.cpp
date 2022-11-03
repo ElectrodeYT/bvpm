@@ -9,133 +9,63 @@
 
 namespace fs = std::filesystem;
 
-bool InstallEngine::AddPackage(std::string package) {
-    PRINT_DEBUG("adding package " << package << " to install engine list" << std::endl);
+bool InstallEngine::AddPackageFile(std::string package) {
+    PRINT_DEBUG("adding package file " << package << " to install engine list" << std::endl);
     std::cout << "\33[2K\rAdding package " << package;
     std::cout.flush();
     // TODO: add network package support
     PackageFile file;
-    // TODO: read this from manifest
-    file.name = package;
-    file.path = package;
-    file.a = archive_read_new();
-    archive_read_support_filter_all(file.a);
-    archive_read_support_format_all(file.a);
-    if(archive_read_open_filename(file.a, package.c_str(), 1024) != ARCHIVE_OK) {
-        std::cout << "error adding package " << package << " to install list: archive not ok" << std::endl;
-        return false;
+    if(!file.readFile(package)) { return false; }
+
+    // We now also check if we even need to install this
+    // If this package is installed, then a config read of /etc/bvpm/packages/x/manifest should work
+    ConfigFile installed_manifest = Config::readConfigFile(install_root + "/etc/bvpm/packages/" + file.name + "/manifest");
+    if(installed_manifest.values.find("failed") == installed_manifest.values.end()) {
+        // This package is already installed
+        // If the version is the same as this package
+        // Exception: if this package has no version, we let it install
+        if(installed_manifest.values.find("VERSION") != installed_manifest.values.end()) {
+            if(installed_manifest.values["VERSION"] == file.version) {
+                std::cout << std::endl << "Package " << file.name << " of same version is already installed, skipping" << std::endl;
+                return true; // We return true here since this is not a fatal error
+            }
+        }
     }
-    struct archive_entry* file_entry;
-    bool has_manifest = false;
-    bool has_owned_files = false;
-    bool has_hashes = false;
-    size_t file_size = fs::file_size(package);
-    file.total_package_file_bytes = file_size;
-    while(archive_read_next_header(file.a, &file_entry) == ARCHIVE_OK) {
-        std::cout << "\33[2K\rAdding package " << package << ": " << humanSize(archive_filter_bytes(file.a, -1)) << "/" << humanSize(file_size);
-        std::cout.flush();
-        std::string name = archive_entry_pathname(file_entry);
-        file.total_package_bytes += archive_entry_size(file_entry);
-        if(name == "manifest") {
-            has_manifest = true;
-            // We also try to read the manifest now
-            size_t manifest_size = archive_entry_size(file_entry);
-            char* data = (char*)malloc(manifest_size + 2);
-            memset(data, 0, manifest_size + 1);
-            archive_read_data(file.a, data, manifest_size);
-            file.manifest = Config::readFromData(data);
-        }
-        if(name == "owned-files") {
-            has_owned_files = true;
-            // We also try to read the manifest now
-            size_t owned_files_size = archive_entry_size(file_entry);
-            char* data = (char*)malloc(owned_files_size + 2);
-            memset(data, 0, owned_files_size + 1);
-            archive_read_data(file.a, data, owned_files_size);
 
-            // Split the owned-files by newline
-            std::istringstream ss(data);
-            std::string line;
-            while(std::getline(ss, line, '\n')) {
-                file.owned_files.push_back(line);
-            }
-        }
-        if(name == "sums") {
-            has_hashes = true;
-            // We also try to read the manifest now
-            size_t sums_size = archive_entry_size(file_entry);
-            char* data = (char*)malloc(sums_size + 2);
-            memset(data, 0, sums_size + 1);
-            archive_read_data(file.a, data, sums_size);
-
-            // Split the sums by newline
-            std::istringstream ss(data);
-            std::string line;
-            while(std::getline(ss, line, '\n')) {
-                std::string hash = line.substr(0, line.find(' '));
-                std::string file_str = line.substr(line.find(' '), line.size());
-
-                // Sanitize file a bit
-                while(file_str[0] == ' ') { file_str.erase(0, 1); }
-                if(file_str[0] == '*') { file_str.erase(0, 1); }
-                if(file_str[0] == '.') { file_str.erase(0, 1); }
-
-                file.file_hashes[file_str] = hash;
-            }
-        }
-        if(name == "afterinstall.sh") { file.has_after_install = true; }
-        // We also make a record of all files and folders in root/
-        if(name.rfind("root/", 0) == 0) {
-            // Create a std::string and chop the root/ off
-            std::string name_str(name.erase(0, strlen("root/")));
-            if(name_str.empty()) { continue; }
-            if(*(name.end()--) == '/') {
-                //std::cout << "folder in root: " << name_str << std::endl;
-                file.folders.push_back(name_str);
-            } else {
-                file.files.push_back(name_str);
-            }
-        }
-        archive_read_data_skip(file.a);
-    }
     std::cout << "\33[2K\rDone reading package " << package;
     std::cout.flush();
     archive_read_close(file.a);
     archive_read_free(file.a);
-    if(has_manifest) {
-        // We now parse the manifest (mostly to find the package name)
-        if(file.manifest.values.find("PACKAGE") == file.manifest.values.end()) {
-            std::cout << std::endl <<  "error adding package " << package << " to install list: manifest is missing package name" << std::endl;
-            return false;
-        } else {
-            file.name = file.manifest.values["PACKAGE"];
-        }
-        if(file.manifest.values.find("VERSION") != file.manifest.values.end()) {
-            file.version = file.manifest.values["VERSION"];
-        }
-        // We now also check if we even need to install this
-        // If this package is installed, then a config read of /etc/bvpm/packages/x/manifest should work
-        ConfigFile installed_manifest = Config::readConfigFile(install_root + "/etc/bvpm/packages/" + file.name + "/manifest");
-        if(installed_manifest.values.find("failed") == installed_manifest.values.end()) {
-            // This package is already installed
-            // If the version is the same as this package
-            // Exception: if this package has no version, we let it install
-            if(installed_manifest.values.find("VERSION") != installed_manifest.values.end()) {
-                if(installed_manifest.values["VERSION"] == file.version) {
-                    std::cout << std::endl << "Package " << file.name << " of same version is already installed, skipping" << std::endl;
-                    return true; // We return true here since this is not a fatal error
-                }
+
+    package_list.push_back(file);
+    return true;
+}
+
+bool InstallEngine::AddPackage(const std::string& package_name) {
+    PRINT_DEBUG("adding package " << package_name << " by name to engine list" << std::endl);
+
+    // Check if we can install this
+    if(!repositoryEngine.isPackageInRepos(package_name)) {
+        std::cerr << "Error adding package " << package_name << " to the install list: not in repos" << std::endl;
+        return false;
+    }
+
+    // We now also check if we even need to install this
+    // If this package is installed, then a config read of /etc/bvpm/packages/x/manifest should work
+    ConfigFile installed_manifest = Config::readConfigFile(install_root + "/etc/bvpm/packages/" + package_name + "/manifest");
+    if(installed_manifest.values.find("failed") == installed_manifest.values.end()) {
+        // This package is already installed
+        // If the version is the same as this package
+        // Exception: if this package has no version, we let it install
+        if(installed_manifest.values.find("VERSION") != installed_manifest.values.end()) {
+            if(installed_manifest.values["VERSION"] == repositoryEngine.getPackageVersion(package_name)) {
+                std::cout << std::endl << "Package " << package_name << " of same version is already installed, skipping" << std::endl;
+                return true; // We return true here since this is not a fatal error
             }
         }
     }
-    if(!has_manifest || !has_owned_files) {
-        std::cout << std::endl << "error adding package " << package << " to install list: archive is missing required files" << std::endl;
-        return false;
-    }
-    if(!has_hashes) {
-        std::cout << std::endl << "warning adding package " << package << " to install list: archive is missing hashes" << std::endl;
-    }
-    package_list.push_back(file);
+
+    packages_by_name_list.push_back(package_name);
     return true;
 }
 
@@ -180,7 +110,7 @@ bool InstallEngine::GetUserPermission() {
     std::cout << "The following packages will be installed: " << std::endl;
     size_t total_size = 0;
     size_t total_file_size = 0;
-    for(PackageFile package : package_list) {
+    for(const SimplePackageData& package : all_packages_to_install) {
         std::cout << "\t" << package.name << " (size: " << humanSize(package.total_package_bytes) << ", file size: " << humanSize(package.total_package_file_bytes) << ")" << std::endl;
         total_size += package.total_package_bytes;
         total_file_size += package.total_package_file_bytes;
@@ -188,7 +118,7 @@ bool InstallEngine::GetUserPermission() {
     std::cout << "Total size of packages: " << humanSize(total_size) << "\n";
     std::cout << "Total file size of packages: " << humanSize(total_file_size) << "\n";
     // Check if we have enough space
-    if(fs::space(fs::path(install_root)).available <= total_size) {
+    if(fs::space(fs::path(install_root)).available <= total_size + total_file_size) {
         std::cout << "Error: Not enough space on filesystem (space available: " << humanSize(fs::space(fs::path(install_root)).available) << ")" << std::endl;
         return false;
     }
@@ -201,6 +131,24 @@ bool InstallEngine::GetUserPermission() {
 }
 
 bool InstallEngine::Execute() {
+    // Prepare the packages
+    for(const SimplePackageData& package : all_packages_to_install) {
+        if(!package.from_file) { repositoryEngine.preparePackage(package.name); }
+    }
+
+    // Read the package
+    for(const SimplePackageData& package : all_packages_to_install) {
+        if(package.from_file) { continue; }
+        std::string path_to_bvp_file = repositoryEngine.getBVPFileForPackage(package.name);
+        PackageFile file;
+        if(!file.readFile(path_to_bvp_file, package.name)) {
+            exit(-1);
+        }
+        package_list.push_back(file);
+    }
+
+    VerifyIntegrity();
+
     std::vector<PackageFile> afterinstall_script_list;
     for(PackageFile package : package_list) {
         std::cout << "Operating on " << package.name << '\r';
@@ -313,7 +261,7 @@ bool InstallEngine::Execute() {
             chroot("/");
             chdir("/");
             execl(path.c_str(), path.c_str(), NULL);
-            perror(strcat("couldnt execute shell script for package ", package.name.c_str()));
+            perror(strcat((char*)"couldnt execute shell script for package ", package.name.c_str()));
             exit(-1);
         }
         std::cout << "\33[2K\rDone runinng after install for " << package.name << std::endl;
@@ -323,7 +271,15 @@ bool InstallEngine::Execute() {
 }
 
 bool InstallEngine::VerifyPossible() {
-    if(!dependencyEngine.CheckDependencies(package_list)) { return false; }
+    // We first add all package_list and packages_by_name_list packages to the all_package_to_install list
+    for(const PackageFile& package_file : package_list) {
+        all_packages_to_install.push_back(package_file.toSimplePackageData());
+    }
+    for(const std::string& package_name : packages_by_name_list) {
+        all_packages_to_install.push_back(repositoryEngine.getSimplePackageData(package_name));
+    }
+
+    if(!dependencyEngine.CheckDependencies(all_packages_to_install, repositoryEngine)) { return false; }
     // We now check and make sure that all files the packages want to install dont already exist
     bool passed = true;
     for(PackageFile package : package_list) {

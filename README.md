@@ -1,9 +1,6 @@
 # Basic Versioned Package Manager
 BVPM is a basic package manager. It was written basically to make development of basic-linux easier.
 
-BVPM is currently in a super-duper-early stage, and should not be used for anything but the most stupid systems.
-It does not currently support dependencies, or anything like that (at least not very well).
-
 # File format
 The .bvp file format is just a .tar file (no compression, although if the libarchive installion supports compressed TAR files there is no reason we can't either)
 
@@ -18,3 +15,7 @@ afterinstall.sh: A script thats run at the end of the package installation. Opti
 sums: A list of file hashes. Optional; will give a warning when not present.
 
 A folder called root must be present. The files in there will be copied to the root folder.
+
+# Repository
+BVPM currently has basic repository support. It consists of a single folder, with a repo.manifest file in it.
+Packages can be added/removed from it with the bvpm-repo utility, which is in the same executable as bvpm, which is simply symlinked.

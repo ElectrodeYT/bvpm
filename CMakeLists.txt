@@ -1,9 +1,9 @@
-cmake_minimum_required(VERSION 3.23)
+cmake_minimum_required(VERSION 3.18)
 project(bvpm)
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
-set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG -Wall -Wextra -Werror -Wno-unused-parameter")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG -Wall -Wextra -Werror -Wno-unused-parameter")
 
 set(BVP_DONT_ADD_DEPENDENCY FALSE CACHE BOOL "Add the dependency section to the bvpm.bvp file (bash, glibc)")
 
@@ -13,9 +13,21 @@ add_executable(bvpm
         UninstallEngine.cpp
         DependencyEngine.cpp
         config.cpp
+        LocalFolderRepository.cpp
+        PackageFile.cpp
+        RepositoryEngine.cpp
         )
 target_include_directories(bvpm PUBLIC include)
 target_link_libraries(bvpm PUBLIC archive)
+
+install(TARGETS bvpm DESTINATION "bin")
+# Create the bvpm-repo symlink
+install(CODE "execute_process( \
+            COMMAND ${CMAKE_COMMAND} -E create_symlink \
+            bvpm   \
+            ${CMAKE_INSTALL_PREFIX}/bin/bvpm-repo \
+            )"
+        )
 
 add_custom_target(create_bvpm_package_folder
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/package
@@ -50,3 +62,4 @@ add_custom_target(create_bvpm_package ALL
         DEPENDS create_bvpm_package_folder
         )
 endif()
+

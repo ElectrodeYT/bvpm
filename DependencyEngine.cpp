@@ -47,65 +47,49 @@ void DependencyEngine::LoadInstalledPackages() {
     std::cout << installed_packages.size() << " installed packages." << std::endl;
 }
 
-bool DependencyEngine::CheckDependencies(std::vector<PackageFile>& packages) {
+bool DependencyEngine::CheckDependencies(std::vector<SimplePackageData>& packages, RepositoryEngine& repositoryEngine) {
     bool passed = true;
     bool sort_req = false;
-    std::map<std::string, std::string> new_files;
-    for(PackageFile& package : packages) {
+    for(SimplePackageData& package : packages) {
         // If the manifest has a dependencies section, then we check if they are already installed
         // If not, then we check if they are in the install list
-        // If also not, then we bail
-        // TODO: redo this if/when network install is added
-        if(package.manifest.values.find("DEPENDENCY") != package.manifest.values.end()) {
-            // PRINT_DEBUG("checking dependencies for " << package.name << std::endl);
-            std::stringstream ss(package.manifest.values["DEPENDENCY"]);
-            while(ss.good()) {
-                std::string package_dep;
-                std::getline(ss, package_dep, ',');
-
-                // We now check if this dependency is installed
-                if(installed_packages.find(package_dep) == installed_packages.end()) {
-                    // If we dont have the dependency, then we can go and check if we are also about to install it:
-                    // TODO: when network works, add some shit for this
-                    bool found = false;
-                    for(PackageFile depsearch : packages) {
-                        if(depsearch.name == package_dep) {
-                            // If they have us in their dep list, than we report this and cut the dependency between them and us
-                            if(std::find(depsearch.dependencies.begin(), depsearch.dependencies.end(), package.name) != depsearch.dependencies.end()) {
-                                std::cout << "Package " << package_dep << " has a circular dependency with us, breaking." << std::endl;
-                                found = true;
-                                break;
-                            }
-                            // Add this package to our dependencies list
-                            package.dependencies.push_back(depsearch.name);
+        // If also not, then we check if we can add it to the package list
+        // If even then not, we bail
+        PRINT_DEBUG(package.name << std::endl);
+        for(const std::string& package_dep : package.dependencies) {
+            PRINT_DEBUG("\t" << package_dep << std::endl);
+            // We now check if this dependency is installed
+            if(installed_packages.find(package_dep) == installed_packages.end()) {
+                // If we dont have the dependency, then we can go and check if we are also about to install it:
+                // TODO: when network works, add some shit for this
+                bool found = false;
+                for(SimplePackageData depsearch : packages) {
+                    if(depsearch.name == package_dep) {
+                        // If they have us in their dep list, than we report this and cut the dependency between them and us
+                        if(std::find(depsearch.dependencies.begin(), depsearch.dependencies.end(), package.name) != depsearch.dependencies.end()) {
+                            std::cout << "Package " << package_dep << " has a circular dependency with us, breaking." << std::endl;
+                            // TODO
                             found = true;
-                            sort_req = true;
-                            // PRINT_DEBUG("added dep " << depsearch.name << " to package " << package.name << ", dep count now " << package.dependencies.size() << std::endl);
                             break;
                         }
-                    }
-                    if(!found) {
-                        std::cout << "Package " << package.name << " is missing dependency " << package_dep << std::endl;
-                        passed = false;
+                        found = true;
+                        sort_req = true;
+                        // PRINT_DEBUG("added dep " << depsearch.name << " to package " << package.name << ", dep count now " << package.dependencies.size() << std::endl);
+                        break;
                     }
                 }
-            }
-        }
-
-        // We also look through the owned files here
-        // We basically check if a package here would clash with another package
-        bool pass_failed = false;
-        for(std::string file : package.owned_files) {
-            if(new_files.find(file) != new_files.end()) {
-                std::cout << "Error: package " << package.name << " has file clashes with package " << new_files[file] << ": " << file << std::endl;
-                passed = false;
-                pass_failed = true;
-            }
-        }
-        if(!pass_failed) {
-            // We can now add the files
-            for(std::string file : package.owned_files) {
-                new_files[file] = package.name;
+                if(!found) {
+                    // We now ask the repository manager if this package is available
+                    if(!repositoryEngine.isPackageInRepos(package_dep)) {
+                        std::cout << "Package " << package.name << " is missing dependency " << package_dep << std::endl;
+                        passed = false;
+                    } else {
+                        // We can add it to the package dep list
+                        PRINT_DEBUG("\t\tadded" << std::endl);
+                        packages.push_back(repositoryEngine.getSimplePackageData(package_dep));
+                        sort_req = true;
+                    }
+                }
             }
         }
     }
@@ -119,8 +103,8 @@ bool DependencyEngine::CheckDependencies(std::vector<PackageFile>& packages) {
 //        }
 //    }
     std::cout << "Sorting dependencies..." << std::endl;
-    std::vector<PackageFile> sorted_packages;
-    while(packages.size() > 0) {
+    std::vector<SimplePackageData> sorted_packages;
+    while(!packages.empty()) {
         InsertPackageIntoListSorted((*packages.begin()).name, packages, sorted_packages);
     }
 //    for(PackageFile& package : sorted_packages) {
@@ -133,16 +117,16 @@ bool DependencyEngine::CheckDependencies(std::vector<PackageFile>& packages) {
     return passed;
 }
 
-void DependencyEngine::InsertPackageIntoListSorted(const std::string& name, std::vector<PackageFile>& all_packages, std::vector<PackageFile>& sorted_packages) {
-    auto package = std::find_if(all_packages.begin(), all_packages.end(), [name](PackageFile pack) {
+void DependencyEngine::InsertPackageIntoListSorted(const std::string& name, std::vector<SimplePackageData>& all_packages, std::vector<SimplePackageData>& sorted_packages) {
+    auto package = std::find_if(all_packages.begin(), all_packages.end(), [name](SimplePackageData pack) {
         return name == pack.name;
     });
     if(package != all_packages.end()) {
-        PackageFile obj = *package;
+        SimplePackageData obj = *package;
         all_packages.erase(package);
         // PRINT_DEBUG("inserting for pack " << obj.name << std::endl);
         // PRINT_DEBUG(" dep count: " << obj.dependencies.size() << std::endl);
-        for(std::string dep : obj.dependencies) {
+        for(const std::string& dep : obj.dependencies) {
             // PRINT_DEBUG("inserting dep " << dep << " for " << obj.name << std::endl);
             InsertPackageIntoListSorted(dep, all_packages, sorted_packages);
         }
@@ -206,10 +190,10 @@ size_t DependencyEngine::GetPackageSize(std::string name) {
     size_t size = 0;
     for(std::string file : files) {
         try {
-            if(fs::is_symlink(file)) { continue; }
-            size += fs::file_size(file);
+            if(fs::is_symlink(fs::path(install_root) += file)) { continue; }
+            size += fs::file_size(fs::path(install_root) += file);
         } catch(fs::filesystem_error& e) {
-            std::cout << "Error getting size of file " << file << ": " << e.what() << std::endl;
+            std::cout << "Error getting size of file " << (fs::path(install_root) += file) << ": " << e.what() << std::endl;
         }
     }
     return size;

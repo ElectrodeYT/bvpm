@@ -11,42 +11,31 @@
 #include <archive_entry.h>
 #include <config.h>
 #include <DependencyEngine.h>
-
-struct PackageFile {
-    struct archive* a;
-    std::vector<std::string> folders;
-    std::vector<std::string> files;
-    std::string name;
-    std::string version = "";
-    std::string path;
-
-    size_t total_package_bytes = 0;
-    size_t total_package_file_bytes = 0;
-    ConfigFile manifest;
-
-    bool has_after_install = false;
-    std::vector<std::string> dependencies;
-    std::vector<std::string> owned_files;
-    std::map<std::string, std::string> file_hashes;
-};
+#include <PackageFile.h>
+#include "RepositoryEngine.h"
 
 class InstallEngine {
 public:
-    InstallEngine(const std::string root) : install_root(root), dependencyEngine(root) { }
+    InstallEngine(const std::string root, ConfigFile global_config_file) : dependencyEngine(root), repositoryEngine(global_config_file, root),
+                                                                           install_root(root) { }
 
-    bool AddPackage(std::string package);
+    bool AddPackageFile(std::string package);
+    bool AddPackage(const std::string& package_file);
     bool VerifyPossible();
     bool VerifyIntegrity();
     bool Execute();
     bool GetUserPermission();
 
-    bool empty() { return package_list.empty(); }
+    bool empty() { return package_list.empty() && packages_by_name_list.empty(); }
 
     DependencyEngine dependencyEngine;
+    RepositoryEngine repositoryEngine;
 private:
 
     const std::string install_root;
     std::vector<PackageFile> package_list;
+    std::vector<std::string> packages_by_name_list;
+    std::vector<SimplePackageData> all_packages_to_install;
 };
 
 
