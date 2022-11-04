@@ -25,7 +25,7 @@ install(TARGETS bvpm DESTINATION "bin")
 install(CODE "execute_process( \
             COMMAND ${CMAKE_COMMAND} -E create_symlink \
             bvpm   \
-            ${CMAKE_INSTALL_PREFIX}/bin/bvpm-repo \
+            \$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/bvpm-repo \
             )"
         )
 
