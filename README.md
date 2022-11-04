@@ -2,7 +2,7 @@
 BVPM is a basic package manager. It was written basically to make development of basic-linux easier.
 
 # File format
-The .bvp file format is just a .tar file (no compression, although if the libarchive installion supports compressed TAR files there is no reason we can't either)
+The .bvp file format is just a .tar file (compressed with zstd, although there is not reason that other compression algorithms can't be used since libarchive is used)
 
 The file has two/three extra files in it:
 
